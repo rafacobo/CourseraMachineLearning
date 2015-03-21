@@ -1,0 +1,126 @@
+---
+title: "Practical Machine Learning Project"
+author: "Rafael Cobo"
+date: "17 Mar 2015"
+output: html_document
+---
+
+### BACKGROUND
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement ??? a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+### SPECIFICATIONS
+- MacBook (2008)
+- Processor 2 GHz Intel Core 2 Duo (2GB)
+- OS X Yosemite Version 10.10
+- RStudio Version 0.98.1091
+- R Version 3.1.2 (2014-10-31)
+
+```{r, message=FALSE}
+library(caret)
+library(rpart) 
+library(e1071)
+library(randomForest)
+library(ggplot2)
+library(reshape2)
+library(gridExtra)
+```
+
+In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+### PART I.- LOADING AND PREPARING DATA
+The training data for this project are available here: 
+```{r}
+rawtrain <- read.csv("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv")
+dim(rawtrain)
+```
+
+The test data are available here: 
+```{r}
+rawtest <- read.csv("http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv")
+dim(rawtest)
+```
+
+We will only use 52 predictors (13 for each group: belt, arm, dumbbell and forearm) and the outcome classe. We'll drop the rest of variables
+```{r}
+btrain <- rawtrain[, which(sapply(rawtest, function(x)all(is.na(x))) == FALSE)]
+trainf <- btrain[, 8:60]
+colnames(trainf)
+set.seed(8128) # Reproducibility
+inTrain <- createDataPartition(trainf$classe, p = 0.7, list = FALSE)
+train <- trainf[inTrain, ]
+probe <- trainf[-inTrain, ]
+dim(train)
+dim(probe)
+```
+
+We havent missing values or NAs in our trainf
+
+### PART II.- EXPLORATORY DATA ANALYSIS
+Note that outcome variable is not equally distributed between the clases.
+```{r, echo=FALSE}
+rbind(table(as.factor(train$classe)), table(as.factor(train$classe))/dim(train)[1])
+pie(table(as.factor(train$classe))/dim(train)[1], col = c("orangered", "mediumseagreen", "royalblue1", "yellow1", "darkorange"), main = "Outcome Distribution on Train Set")
+```
+
+We can take a look into the predictors. Some examples:
+```{r, message=FALSE, echo=FALSE}
+beltmelted1 <- melt(train[,1:3])
+p1 <- ggplot(beltmelted1, aes(x = variable, y = value)) +
+    geom_violin(aes(colour = variable, fill = variable))
+beltmelted2 <- melt(train[,8:13])
+p2 <- ggplot(beltmelted2, aes(x = variable, y = value)) +
+    geom_violin(aes(colour = variable, fill = variable))
+p3 <- arrangeGrob(p1, p2, nrow = 2, heights = c(0.45, 0.55), widths = c(8, 10) , main = textGrob("Violin Plot of Some Belt Related Predictors", just = "top", gp = gpar(fontface = "bold")))
+p3
+```
+
+### PART III.- RANDOM FOREST ALL PREDICTORS
+Why Random Forest?
+The method perform an OOB error analysis and estimation
+The method provides a ranking for the predictors
+We avoid preprocessing the predictors data
+It is appropiate to deal with a large number of predictors (52 in our case)
+
+```{r}
+rf_all <- randomForest(classe ~ ., data = train, importance = TRUE)
+rf_all
+```
+
+Amazing OOB estimate of error. Now let's see the confusion matrix on probe data that previously we had set aside:
+```{r}
+confusionMatrix(predict(rf_all, probe), probe$classe)
+```
+
+It's promising that the accuracy remains so high. Now we'll look at the variable importance plot. Top 20:
+```{r}
+varImpPlot(rf_all, sort = TRUE, n.var = 20, main = "Variable Importance Plot. Top 20")
+```
+
+Maybe we can achieve similar figures using only the top 10 importance predictors...
+
+### PART IV.- RANDOM FOREST SOME PREDICTORS
+```{r}
+rf_some <- randomForest(classe ~ yaw_belt + roll_belt + pitch_belt + magnet_dumbbell_z + magnet_dumbbell_y + pitch_forearm + gyros_arm_y + gyros_dumbbell_z + accel_dumbbell_y + magnet_belt_x, data = train, importance = FALSE)
+rf_some
+```
+
+Using only ten predictors we also have a very good OOB estimate of error. Again let's see the confusion matrix on probe data for the 10 predictors random forest
+```{r, echo=FALSE}
+x <- confusionMatrix(predict(rf_some, probe), probe$classe)
+x
+levelplot(as.matrix(x)/dim(probe)[1], col.regions=heat.colors(75), main="Random Forest 10 Predictors Confusion Matrix / dim(probe)[1]")
+```
+
+### PART V.- FORECASTING
+In our case both models (using all predictors or using only the top ten) give us the same forecast. All predictors:
+```{r}
+forecast_all <- predict(rf_all, rawtest)
+forecast_all
+```
+
+Top ten predictors:
+```{r}
+forecast_some <- predict(rf_some, rawtest)
+forecast_some
+```
